@@ -4,4 +4,25 @@
    <FileRef
       location = "self:">
    </FileRef>
+   <FileRef
+      location = "group:SHARING_TIMING_FIX.md">
+   </FileRef>
+   <FileRef
+      location = "group:FINAL_SHARING_FIX_SUMMARY.md">
+   </FileRef>
+   <FileRef
+      location = "group:CODE_BASED_SHARING.md">
+   </FileRef>
+   <FileRef
+      location = "group:SHARING_USER_GUIDE.md">
+   </FileRef>
+   <FileRef
+      location = "group:CLOUDKIT_PUBLIC_DATABASE_SETUP.md">
+   </FileRef>
+   <FileRef
+      location = "group:IMPLEMENTATION_PLAN_FINAL.md">
+   </FileRef>
+   <FileRef
+      location = "group:CLOUDKIT_SHARING_FIX_V2_APPLIED.md">
+   </FileRef>
 </Workspace>

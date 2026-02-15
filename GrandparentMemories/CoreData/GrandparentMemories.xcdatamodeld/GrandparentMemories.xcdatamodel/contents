@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="22758" systemVersion="23F79" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+
+    <!-- UserProfile Entity -->
+    <entity name="CDUserProfile" representedClassName="CDUserProfile" syncable="YES" codeGenerationType="class">
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="hasCompletedOnboarding" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="isPremium" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="freeMemoryCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="photoData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+    </entity>
+
+    <!-- Contributor Entity -->
+    <entity name="CDContributor" representedClassName="CDContributor" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="role" optional="YES" attributeType="String"/>
+        <attribute name="colorHex" optional="YES" attributeType="String"/>
+        <attribute name="iCloudUserRecordName" optional="YES" attributeType="String"/>
+        <relationship name="memories" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDMemory" inverseName="contributor" inverseEntity="CDMemory"/>
+        <relationship name="ancestors" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDAncestor" inverseName="contributor" inverseEntity="CDAncestor"/>
+        <relationship name="pets" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDFamilyPet" inverseName="contributor" inverseEntity="CDFamilyPet"/>
+        <relationship name="ancestorPhotos" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDAncestorPhoto" inverseName="contributor" inverseEntity="CDAncestorPhoto"/>
+        <relationship name="petPhotos" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDPetPhoto" inverseName="contributor" inverseEntity="CDPetPhoto"/>
+    </entity>
+
+    <!-- Grandchild Entity -->
+    <entity name="CDGrandchild" representedClassName="CDGrandchild" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="birthDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="photoData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="familyId" optional="YES" attributeType="String"/>
+        <attribute name="familyLink" optional="YES" attributeType="String"/>
+        <attribute name="hasViewedWelcomeVideo" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="lastViewedDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="shareCode" optional="YES" attributeType="String"/>
+        <relationship name="memories" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDMemory" inverseName="grandchildren" inverseEntity="CDMemory"/>
+        <relationship name="ancestors" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDAncestor" inverseName="grandchild" inverseEntity="CDAncestor"/>
+        <relationship name="pets" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDFamilyPet" inverseName="grandchild" inverseEntity="CDFamilyPet"/>
+    </entity>
+
+    <!-- Memory Entity -->
+    <entity name="CDMemory" representedClassName="CDMemory" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="memoryType" optional="YES" attributeType="String"/>
+        <attribute name="privacy" optional="YES" attributeType="String"/>
+        <attribute name="title" optional="YES" attributeType="String"/>
+        <attribute name="note" optional="YES" attributeType="String"/>
+        <attribute name="photoData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="photoFilename" optional="YES" attributeType="String"/>
+        <attribute name="audioData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="videoData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="videoThumbnailData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="videoURL" optional="YES" attributeType="String"/>
+        <attribute name="createdBy" optional="YES" attributeType="String"/>
+        <attribute name="isImported" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="locationName" optional="YES" attributeType="String"/>
+        <attribute name="latitude" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="longitude" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="milestoneTitle" optional="YES" attributeType="String"/>
+        <attribute name="milestoneAge" optional="YES" attributeType="String"/>
+        <attribute name="recipeTitle" optional="YES" attributeType="String"/>
+        <attribute name="ingredients" optional="YES" attributeType="String"/>
+        <attribute name="instructions" optional="YES" attributeType="String"/>
+        <attribute name="letterTitle" optional="YES" attributeType="String"/>
+        <attribute name="openWhenAge" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="releaseDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="releaseAge" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="isReleased" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="wasWatched" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="watchedDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="childReaction" optional="YES" attributeType="String"/>
+        <attribute name="isWelcomeVideo" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <relationship name="grandchildren" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDGrandchild" inverseName="memories" inverseEntity="CDGrandchild"/>
+        <relationship name="contributor" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDContributor" inverseName="memories" inverseEntity="CDContributor"/>
+    </entity>
+
+    <!-- Ancestor Entity -->
+    <entity name="CDAncestor" representedClassName="CDAncestor" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="photoData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="birthYear" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="deathYear" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="relationship" optional="YES" attributeType="String"/>
+        <attribute name="story" optional="YES" attributeType="String"/>
+        <attribute name="generation" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="lineage" optional="YES" attributeType="String"/>
+        <attribute name="gender" optional="YES" attributeType="String"/>
+        <attribute name="familyRole" optional="YES" attributeType="String"/>
+        <attribute name="spouseId" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="siblingGroupId" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <relationship name="grandchild" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDGrandchild" inverseName="ancestors" inverseEntity="CDGrandchild"/>
+        <relationship name="contributor" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDContributor" inverseName="ancestors" inverseEntity="CDContributor"/>
+        <relationship name="photos" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDAncestorPhoto" inverseName="ancestor" inverseEntity="CDAncestorPhoto"/>
+        <relationship name="pets" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDFamilyPet" inverseName="ancestor" inverseEntity="CDFamilyPet"/>
+    </entity>
+
+    <!-- AncestorPhoto Entity -->
+    <entity name="CDAncestorPhoto" representedClassName="CDAncestorPhoto" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="photoData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="caption" optional="YES" attributeType="String"/>
+        <attribute name="year" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="ancestor" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDAncestor" inverseName="photos" inverseEntity="CDAncestor"/>
+        <relationship name="contributor" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDContributor" inverseName="ancestorPhotos" inverseEntity="CDContributor"/>
+    </entity>
+
+    <!-- PetPhoto Entity -->
+    <entity name="CDPetPhoto" representedClassName="CDPetPhoto" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="photoData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="caption" optional="YES" attributeType="String"/>
+        <attribute name="year" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="pet" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDFamilyPet" inverseName="photos" inverseEntity="CDFamilyPet"/>
+        <relationship name="contributor" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDContributor" inverseName="petPhotos" inverseEntity="CDContributor"/>
+    </entity>
+
+    <!-- FamilyPet Entity -->
+    <entity name="CDFamilyPet" representedClassName="CDFamilyPet" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="petType" optional="YES" attributeType="String"/>
+        <attribute name="birthYear" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="passedYear" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="story" optional="YES" attributeType="String"/>
+        <relationship name="photos" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDPetPhoto" inverseName="pet" inverseEntity="CDPetPhoto"/>
+        <relationship name="grandchild" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDGrandchild" inverseName="pets" inverseEntity="CDGrandchild"/>
+        <relationship name="ancestor" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDAncestor" inverseName="pets" inverseEntity="CDAncestor"/>
+        <relationship name="contributor" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDContributor" inverseName="pets" inverseEntity="CDContributor"/>
+    </entity>
+
+</model>

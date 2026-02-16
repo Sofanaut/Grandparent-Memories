@@ -22,3 +22,4 @@ Pods/
 *.pem
 *.p12
 *.key
+GoogleService-Info.plist

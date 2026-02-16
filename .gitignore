@@ -1,27 +1,24 @@
-.DS_Store
-
 # Xcode
+build/
 DerivedData/
 *.xcuserstate
-xcuserdata/
-*.xcscmblueprint
 *.xccheckout
-*.xcuserdatad/
-*.xcworkspace/xcuserdata/
+*.moved-aside
+xcuserdata/
 
-# Build products
-build/
-*.app
-*.dSYM
-*.ipa
-Products/
-
-# SwiftPM
+# Swift Package Manager
 .build/
-Package.resolved
+Packages/
 
-# Backups
-*.backup
+# CocoaPods
+Pods/
 
-# Firebase config (keep private)
-GoogleService-Info.plist
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Secrets / keys
+*.pem
+*.p12
+*.key

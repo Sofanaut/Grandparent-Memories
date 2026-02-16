@@ -12,8 +12,13 @@ import CoreData
 
 struct AcceptShareView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.managedObjectContext) private var viewContext
     @AppStorage("isGrandchildMode") private var isGrandchildMode = false
+    @AppStorage("isCoGrandparentDevice") private var isCoGrandparentDevice = false
+    @AppStorage("isPrimaryDevice") private var isPrimaryDevice = false
     @AppStorage("selectedGrandchildID") private var selectedGrandchildID: String = ""
+    @FetchRequest(fetchRequest: FetchRequestBuilders.userProfile())
+    private var userProfiles: FetchedResults<CDUserProfile>
     
     private let sharingManager = CloudKitSharingManager.shared
     private let coreDataStack = CoreDataStack.shared
@@ -59,7 +64,7 @@ struct AcceptShareView: View {
                             .foregroundStyle(DesignSystem.Colors.textPrimary)
                             .multilineTextAlignment(.center)
                         
-                        Text(isGrandchildMode ? "Enter the share code or paste the link they sent you" : "Paste the CloudKit share link your partner sent you")
+                        Text(isGrandchildMode ? "Enter the 6-digit code they sent you" : "Enter the 6-digit code your partner sent you")
                             .font(DesignSystem.Typography.body)
                             .foregroundStyle(DesignSystem.Colors.textSecondary)
                             .multilineTextAlignment(.center)
@@ -69,11 +74,11 @@ struct AcceptShareView: View {
                     
                     // Enter Code or Link
                     VStack(spacing: 16) {
-                        Text("Enter Share Code or Link")
+                        Text("Enter Share Code")
                             .font(DesignSystem.Typography.headline)
                             .foregroundStyle(DesignSystem.Colors.textPrimary)
                         
-                        TextField("ABC123 or https://icloud.com/share/...", text: $shareCode)
+                        TextField("ABC123", text: $shareCode)
                             .font(.system(.body, design: .monospaced))
                             .textFieldStyle(.roundedBorder)
                             .autocapitalization(.allCharacters)
@@ -82,10 +87,6 @@ struct AcceptShareView: View {
                         
                         VStack(spacing: 4) {
                             Text("Enter the 6-digit code they sent you")
-                                .font(DesignSystem.Typography.caption)
-                                .foregroundStyle(DesignSystem.Colors.textSecondary)
-                            
-                            Text("or paste the full link if they shared it")
                                 .font(DesignSystem.Typography.caption)
                                 .foregroundStyle(DesignSystem.Colors.textTertiary)
                         }
@@ -215,26 +216,25 @@ struct AcceptShareView: View {
 
             // Trigger a shared-zone scan and wait for the shared grandchild to import
             await coreDataStack.checkForAcceptedShares()
-            let importedGrandchild = await coreDataStack.waitForSharedGrandchildImport()
+            let importedGrandchild = await coreDataStack.waitForSharedGrandchildImport(timeoutSeconds: 120, pollInterval: 2)
             
             await MainActor.run {
-                // Complete onboarding for grandchild
-                if !isGrandchildMode {
-                    isGrandchildMode = true
-                    let context = coreDataStack.viewContext
-                    let fetchRequest: NSFetchRequest<CDUserProfile> = CDUserProfile.fetchRequest()
-                    
-                    if let profile = try? context.fetch(fetchRequest).first {
-                        profile.hasCompletedOnboarding = true
-                    } else {
-                        let newProfile = CDUserProfile(context: context)
-                        newProfile.hasCompletedOnboarding = true
-                        newProfile.isPremium = false
-                        newProfile.freeMemoryCount = 0
-                        newProfile.name = "Grandchild"
-                    }
-                    try? context.save()
+                // Co-grandparent join should not force grandchild mode
+                isGrandchildMode = false
+                isCoGrandparentDevice = true
+                isPrimaryDevice = false
+
+                // Ensure onboarding is completed for this device
+                if let profile = userProfiles.first {
+                    profile.hasCompletedOnboarding = true
+                } else {
+                    let newProfile = CDUserProfile(context: viewContext)
+                    newProfile.hasCompletedOnboarding = true
+                    newProfile.isPremium = false
+                    newProfile.freeMemoryCount = 0
+                    newProfile.name = "Co-Grandparent"
                 }
+                viewContext.saveIfNeeded()
 
                 if let importedGrandchild {
                     selectedGrandchildID = importedGrandchild.id?.uuidString ?? ""

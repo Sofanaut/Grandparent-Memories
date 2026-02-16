@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreData
+import Combine
 
 struct HelloQueueView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -19,12 +20,22 @@ struct HelloQueueView: View {
     @State private var startDate = Date()
     @State private var isEnabled = false
     @State private var editingMemory: EditableMemory?
+    @State private var showStartDateAlert = false
+    @State private var isRefreshing = false
 
     private var selectedGrandchild: CDGrandchild? {
-        if let id = selectedGrandchildID {
-            return grandchildren.first(where: { $0.id == id })
+        let all = Array(grandchildren)
+        let shared = all.filter { isSharedStore($0) }
+        if let id = selectedGrandchildID, let exact = all.first(where: { $0.id == id }) {
+            if isSharedStore(exact) {
+                return exact
+            }
+            if let sharedMatch = sharedMatches(for: exact).first {
+                return sharedMatch
+            }
+            return exact
         }
-        return grandchildren.first
+        return shared.first ?? all.first
     }
 
     private var queueItems: [CDMemory] {
@@ -42,10 +53,14 @@ struct HelloQueueView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("Heartbeats send one memory each week to a chosen grandchild.")
-                        .font(.caption)
-                        .foregroundStyle(DesignSystem.Colors.textSecondary)
-                        .padding(.vertical, 4)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Heartbeats send one memory each week to a chosen grandchild.")
+                        Text("Think of it as a gentle, ongoing hello — a steady stream of moments that arrive over time, even if you’re no longer here.")
+                        Text("Heartbeats are separate from the Vault. They live only in this queue until released, then appear in the Timeline.")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .padding(.vertical, 4)
                 }
                 if let grandchild = selectedGrandchild {
                     Section {
@@ -79,8 +94,34 @@ struct HelloQueueView: View {
                             get: { isEnabled },
                             set: { newValue in
                                 isEnabled = newValue
-                                if let id = grandchild.id {
-                                    HelloQueueManager.shared.setEnabled(newValue, for: id)
+                                if let grandchild = selectedGrandchild {
+                                    if newValue {
+                                        let now = Date()
+                                        if startDate <= now {
+                                            isEnabled = false
+                                            showStartDateAlert = true
+                                            return
+                                        }
+                                    }
+                                    let targets = sharedMatches(for: grandchild)
+                                    let updateTargets = targets.isEmpty ? [grandchild] : targets
+                                    for target in updateTargets {
+                                        target.heartbeatsEnabled = newValue
+                                        if newValue {
+                                            target.heartbeatsLastReleaseDate = nil
+                                            target.heartbeatsStartDate = startDate
+                                        }
+                                    }
+                                    viewContext.saveIfNeeded()
+                                    if newValue {
+                                        let now = Date()
+                                        for target in updateTargets {
+                                            let effectiveStart = target.heartbeatsStartDate ?? startDate
+                                            if effectiveStart <= now, let id = target.id {
+                                                HelloQueueManager.shared.runIfNeeded(viewContext: viewContext, grandchildID: id)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         )) {
@@ -96,8 +137,21 @@ struct HelloQueueView: View {
                             get: { startDate },
                             set: { newValue in
                                 startDate = newValue
-                                if let id = grandchild.id {
-                                    HelloQueueManager.shared.setStartDate(newValue, for: id)
+                                if let grandchild = selectedGrandchild {
+                                    let targets = sharedMatches(for: grandchild)
+                                    let updateTargets = targets.isEmpty ? [grandchild] : targets
+                                    for target in updateTargets {
+                                        target.heartbeatsStartDate = newValue
+                                        target.heartbeatsLastReleaseDate = nil
+                                    }
+                                    viewContext.saveIfNeeded()
+                                    if newValue <= Date() {
+                                        for target in updateTargets {
+                                            if let id = target.id {
+                                                HelloQueueManager.shared.runIfNeeded(viewContext: viewContext, grandchildID: id)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         ), displayedComponents: [.date, .hourAndMinute])
@@ -154,9 +208,17 @@ struct HelloQueueView: View {
             .sheet(item: $editingMemory) { item in
                 HeartbeatEditView(memory: item.memory)
             }
+            .alert("Pick a Future Time First", isPresented: $showStartDateAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Set a start date and time in the future before turning Heartbeats on.")
+            }
+            .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
+                refreshFromStore()
+            }
             .onAppear {
                 if selectedGrandchildID == nil {
-                    selectedGrandchildID = grandchildren.first?.id
+                    selectedGrandchildID = selectedGrandchild?.id
                 }
                 refreshSettings()
             }
@@ -167,9 +229,44 @@ struct HelloQueueView: View {
     }
 
     private func refreshSettings() {
-        guard let id = selectedGrandchild?.id else { return }
-        isEnabled = HelloQueueManager.shared.isEnabled(for: id)
-        startDate = HelloQueueManager.shared.startDate(for: id) ?? Date()
+        guard selectedGrandchild != nil else { return }
+        if let selected = selectedGrandchild,
+           let shared = sharedMatches(for: selected).first {
+            isEnabled = shared.heartbeatsEnabled
+            startDate = shared.heartbeatsStartDate ?? Date()
+        } else {
+            isEnabled = selectedGrandchild?.heartbeatsEnabled ?? false
+            startDate = selectedGrandchild?.heartbeatsStartDate ?? Date()
+        }
+    }
+
+    private func refreshFromStore() {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        viewContext.refreshAllObjects()
+        selectedGrandchildID = selectedGrandchild?.id
+        refreshSettings()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            isRefreshing = false
+        }
+    }
+
+    private func isSharedStore(_ grandchild: CDGrandchild) -> Bool {
+        guard let storeURL = grandchild.objectID.persistentStore?.url?.lastPathComponent else {
+            return false
+        }
+        return storeURL.contains("shared.sqlite")
+    }
+
+    private func sharedMatches(for grandchild: CDGrandchild) -> [CDGrandchild] {
+        let all = Array(grandchildren).filter { isSharedStore($0) }
+        return all.filter { candidate in
+            if let id = grandchild.id, candidate.id == id { return true }
+            if let familyId = grandchild.familyId, familyId == candidate.familyId { return true }
+            if let shareCode = grandchild.shareCode, shareCode == candidate.shareCode { return true }
+            if let name = grandchild.name, name == candidate.name { return true }
+            return false
+        }
     }
 
     private func deleteItems(at offsets: IndexSet) {

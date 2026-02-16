@@ -59,7 +59,7 @@ struct SimpleShareView: View {
                                 .font(DesignSystem.Typography.body)
                                 .foregroundStyle(DesignSystem.Colors.textPrimary)
                             
-                            Text("This takes about 45 seconds while iCloud syncs. Please wait...")
+                            Text("This can take up to 2 minutes while iCloud syncs. Please wait...")
                                 .font(DesignSystem.Typography.caption)
                                 .foregroundStyle(DesignSystem.Colors.textSecondary)
                                 .multilineTextAlignment(.center)

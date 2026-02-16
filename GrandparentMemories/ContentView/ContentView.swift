@@ -31,6 +31,8 @@ struct RootView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @FetchRequest(fetchRequest: FetchRequestBuilders.userProfile())
     private var userProfiles: FetchedResults<CDUserProfile>
+    @FetchRequest(fetchRequest: FetchRequestBuilders.allMemories())
+    private var allMemories: FetchedResults<CDMemory>
     @FetchRequest(fetchRequest: FetchRequestBuilders.allGrandchildren())
     private var grandchildren: FetchedResults<CDGrandchild>
     @FetchRequest(fetchRequest: FetchRequestBuilders.allMemories())
@@ -42,6 +44,9 @@ struct RootView: View {
     @AppStorage("autoReleaseEnabled") private var autoReleaseEnabled = false
     @State private var hasCheckedForExistingData = false
     @State private var isCheckingForData = false
+    @State private var helloQueueTimer: Timer?
+    @State private var refreshTimer: Timer?
+    @State private var sharePollTimer: Timer?
     
     var body: some View {
         Group {
@@ -112,6 +117,9 @@ struct RootView: View {
                     }
                 }
             }
+            startHelloQueueTimer()
+            startRefreshTimer()
+            startSharePollTimer()
             // Only check once per app launch
             guard !hasCheckedForExistingData else { return }
             hasCheckedForExistingData = true
@@ -143,6 +151,21 @@ struct RootView: View {
                             }
                             viewContext.saveIfNeeded()
                         } else {
+                            if isGrandchildMode {
+                                print("👶 Grandchild mode active - skipping onboarding fallback")
+                                if let existingProfile = userProfiles.first {
+                                    existingProfile.hasCompletedOnboarding = true
+                                } else {
+                                    let profile = CDUserProfile(context: viewContext)
+                                    profile.hasCompletedOnboarding = true
+                                    profile.isPremium = false
+                                    profile.freeMemoryCount = 0
+                                    profile.name = "Grandchild"
+                                }
+                                viewContext.saveIfNeeded()
+                                isCheckingForData = false
+                                return
+                            }
                             print("ℹ️ No existing data found - showing onboarding")
                             // No existing data - this is a new user
                             // Create profile with onboarding required
@@ -158,6 +181,25 @@ struct RootView: View {
                         // Stop showing loading screen
                         isCheckingForData = false
                     }
+                }
+            }
+        }
+        .onDisappear {
+            helloQueueTimer?.invalidate()
+            helloQueueTimer = nil
+            refreshTimer?.invalidate()
+            refreshTimer = nil
+            sharePollTimer?.invalidate()
+            sharePollTimer = nil
+        }
+    }
+
+    private func startHelloQueueTimer() {
+        helloQueueTimer?.invalidate()
+        helloQueueTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+            for grandchild in grandchildren {
+                if let id = grandchild.id {
+                    HelloQueueManager.shared.runIfNeeded(viewContext: viewContext, grandchildID: id)
                 }
             }
         }
@@ -191,6 +233,25 @@ struct RootView: View {
         hasCheckedForExistingData = false
         
         print("✅ Fresh install forced - restart app")
+    }
+
+    private func startRefreshTimer() {
+        refreshTimer?.invalidate()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            viewContext.refreshAllObjects()
+        }
+    }
+
+    private func startSharePollTimer() {
+        sharePollTimer?.invalidate()
+        sharePollTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { _ in
+            Task {
+                await CoreDataStack.shared.checkForAcceptedShares()
+                await MainActor.run {
+                    viewContext.refreshAllObjects()
+                }
+            }
+        }
     }
 }
 
@@ -1452,8 +1513,17 @@ struct OnboardingView: View {
             let coreDataStack = CoreDataStack.shared
             try await coreDataStack.acceptShareInvitations(from: [metadata])
 
+            // Wait for the shared grandchild to import (up to 2 minutes)
+            let importedGrandchild = await coreDataStack.waitForSharedGrandchildImport(timeoutSeconds: 120, pollInterval: 2)
+
             // Ask for co-grandparent name after acceptance
             await MainActor.run {
+                if let importedGrandchild {
+                    selectedGrandchildID = importedGrandchild.id?.uuidString ?? ""
+                    CloudKitSharingManager.shared.currentGrandchildId = importedGrandchild.id
+                }
+                isCoGrandparentDevice = true
+                isPrimaryDevice = false
                 withAnimation { currentPage = 13 }
             }
             
@@ -1764,7 +1834,7 @@ struct MainAppView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { selectedTab = oldValue }
             }
         }
-        .sheet(isPresented: $showingCapture) {
+        .fullScreenCover(isPresented: $showingCapture) {
             CaptureSheet(grandchild: selectedGrandchildForCapture)
         }
         .onAppear {
@@ -1935,19 +2005,22 @@ struct TimelineTab: View {
     @Environment(\.managedObjectContext) private var viewContext
     @FetchRequest(fetchRequest: FetchRequestBuilders.allMemories())
     private var allMemories: FetchedResults<CDMemory>
+    @FetchRequest(fetchRequest: FetchRequestBuilders.userProfile())
+    private var userProfiles: FetchedResults<CDUserProfile>
     @FetchRequest(fetchRequest: FetchRequestBuilders.allGrandchildren())
     private var allGrandchildren: FetchedResults<CDGrandchild>
     @FetchRequest(fetchRequest: FetchRequestBuilders.allContributors())
     private var contributors: FetchedResults<CDContributor>
     @AppStorage("activeContributorID") private var activeContributorID: String = ""
-    @AppStorage("currentContributorRole") private var currentContributorRole: String = ""
     @AppStorage("isCoGrandparentDevice") private var isCoGrandparentDevice: Bool = false
+    @AppStorage("currentContributorRole") private var currentContributorRole: String = ""
     @AppStorage("primaryContributorRole") private var primaryContributorRole: String = ""
     @AppStorage("isPrimaryDevice") private var isPrimaryDevice: Bool = false
     @AppStorage("iCloudUserRecordName") private var iCloudUserRecordName: String = ""
     @State private var showingCapture = false
     @State private var selectedMemory: CDMemory?
     @State private var selectedGrandchildFilter: CDGrandchild?
+    @State private var showingDeleteNotAllowed = false
     
     var activeContributor: CDContributor? {
         contributors.first { $0.id?.uuidString == activeContributorID }
@@ -2094,13 +2167,18 @@ struct TimelineTab: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showingCapture) {
+            .fullScreenCover(isPresented: $showingCapture) {
                 CaptureSheet(grandchild: nil)  // CaptureView handles nil and fetches from Core Data
             }
-            .sheet(item: $selectedMemory) { memory in
+            .fullScreenCover(item: $selectedMemory) { memory in
                 let _ = print("📱 SHEET PRESENTING - Memory title: \(memory.title ?? "nil")")
                 let _ = print("📱 SHEET PRESENTING - Memory ID: \(memory.id?.uuidString ?? "nil")")
                 return MemoryDetailView(memory: memory)
+            }
+            .alert("Can't Delete This Memory", isPresented: $showingDeleteNotAllowed) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("You can only delete memories you created.")
             }
             .onAppear {
                 // Set initial filter to the first grandchild if not set
@@ -2113,6 +2191,10 @@ struct TimelineTab: View {
     }
     
     private func deleteMemory(_ memory: CDMemory) {
+        guard canDelete(memory) else {
+            showingDeleteNotAllowed = true
+            return
+        }
         // Delete photo file from disk if it exists
         if let filename = memory.photoFilename {
             PhotoStorageManager.shared.deletePhoto(filename: filename)
@@ -2126,26 +2208,47 @@ struct TimelineTab: View {
         viewContext.saveIfNeeded()
 
     }
+
+    private func canDelete(_ memory: CDMemory) -> Bool {
+        if let contributorId = memory.contributor?.id?.uuidString, !activeContributorID.isEmpty {
+            return contributorId == activeContributorID
+        }
+        if let recordName = memory.contributor?.iCloudUserRecordName, !recordName.isEmpty,
+           !iCloudUserRecordName.isEmpty {
+            return recordName == iCloudUserRecordName
+        }
+        if let createdBy = memory.createdBy?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           let profileName = userProfiles.first?.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            return createdBy == profileName
+        }
+        return false
+    }
 }
 
 struct VaultTab: View {
     @Environment(\.managedObjectContext) private var viewContext
     @FetchRequest(fetchRequest: FetchRequestBuilders.allMemories())
     private var allMemories: FetchedResults<CDMemory>
+    @FetchRequest(fetchRequest: FetchRequestBuilders.userProfile())
+    private var userProfiles: FetchedResults<CDUserProfile>
     @FetchRequest(fetchRequest: FetchRequestBuilders.allGrandchildren())
     private var grandchildren: FetchedResults<CDGrandchild>
+    @AppStorage("activeContributorID") private var activeContributorID: String = ""
+    @AppStorage("iCloudUserRecordName") private var iCloudUserRecordName: String = ""
     @State private var searchText = ""
     @State private var selectedMemory: CDMemory?
     @State private var memoryToSchedule: CDMemory?
+    @State private var showingDeleteNotAllowed = false
     
     var vaultMemories: [CDMemory] {
         // Vault is for unreleased, unscheduled items (Heartbeats never appear here).
         allMemories.filter { memory in
-            guard memory.privacy != MemoryPrivacy.helloQueue.rawValue else { return false }
-            guard memory.isReleased == false || memory.isReleased == nil else { return false }
-            guard memory.releaseDate == nil else { return false }
-            guard memory.releaseAge == 0 else { return false }
-            return true
+            if memory.privacy == MemoryPrivacy.vaultOnly.rawValue { return true }
+            // Fallback for older vault saves that didn't set privacy correctly
+            let isUnreleased = (memory.isReleased == false || memory.isReleased == nil)
+            let hasNoSchedule = (memory.releaseDate == nil && memory.releaseAge == 0)
+            let isHelloQueue = (memory.privacy == MemoryPrivacy.helloQueue.rawValue)
+            return isUnreleased && hasNoSchedule && !isHelloQueue
         }
     }
     
@@ -2195,10 +2298,15 @@ struct VaultTab: View {
             }
             .navigationTitle("Vault")
             .searchable(text: $searchText, prompt: "Search memories")
-            .sheet(item: $selectedMemory) { memory in
+            .fullScreenCover(item: $selectedMemory) { memory in
                 let _ = print("📱 VAULT SHEET PRESENTING - Memory title: \(memory.title ?? "nil")")
                 let _ = print("📱 VAULT SHEET PRESENTING - Memory ID: \(memory.id?.uuidString ?? "nil")")
                 return MemoryDetailView(memory: memory)
+            }
+            .alert("Can't Delete This Memory", isPresented: $showingDeleteNotAllowed) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("You can only delete memories you created.")
             }
             .sheet(item: $memoryToSchedule) { memory in
                 VaultScheduleSheet(memory: memory)
@@ -2230,6 +2338,10 @@ struct VaultTab: View {
     }
     
     private func deleteMemory(_ memory: CDMemory) {
+        guard canDelete(memory) else {
+            showingDeleteNotAllowed = true
+            return
+        }
         // Delete photo file from disk if it exists
         if let filename = memory.photoFilename {
             PhotoStorageManager.shared.deletePhoto(filename: filename)
@@ -2243,6 +2355,21 @@ struct VaultTab: View {
         } catch {
             print("❌ Failed to delete memory: \(error)")
         }
+    }
+
+    private func canDelete(_ memory: CDMemory) -> Bool {
+        if let contributorId = memory.contributor?.id?.uuidString, !activeContributorID.isEmpty {
+            return contributorId == activeContributorID
+        }
+        if let recordName = memory.contributor?.iCloudUserRecordName, !recordName.isEmpty,
+           !iCloudUserRecordName.isEmpty {
+            return recordName == iCloudUserRecordName
+        }
+        if let createdBy = memory.createdBy?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           let profileName = userProfiles.first?.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            return createdBy == profileName
+        }
+        return false
     }
 }
 
@@ -2723,7 +2850,7 @@ enum GiftReleaseOption {
         //     }
         // }
         
-        await MainActor.run {
+        Task { @MainActor in
             dismiss()
         }
     }
@@ -3036,6 +3163,13 @@ struct MemoryCard: View {
                 }
             }
             
+            if let title = memory.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !title.isEmpty {
+                Text(title)
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+            }
+
             // Note preview (truncated)
             if let note = memory.note, !note.isEmpty {
                 Text(note)
@@ -3198,13 +3332,13 @@ struct CaptureSheet: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(DesignSystem.Colors.backgroundPrimary)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
-            .sheet(item: $selectedMemoryType) { memoryType in
+            .fullScreenCover(item: $selectedMemoryType) { memoryType in
                 CaptureView(grandchild: grandchild, memoryType: memoryType)
             }
-            .sheet(item: $selectedVaultMemoryType) { memoryType in
+            .fullScreenCover(item: $selectedVaultMemoryType) { memoryType in
                 CaptureView(grandchild: nil, memoryType: memoryType, allowUnassigned: true, forceVaultOnly: true)
             }
-            .sheet(isPresented: $showingPhotoImport) {
+            .fullScreenCover(isPresented: $showingPhotoImport) {
                 PhotoImportView(grandchild: grandchild)
             }
             .confirmationDialog("Capture to Vault", isPresented: $showingVaultCapturePicker, titleVisibility: .visible) {
@@ -3263,6 +3397,8 @@ struct CaptureView: View {
     @Environment(\.dismiss) private var dismiss
     @FetchRequest(fetchRequest: FetchRequestBuilders.userProfile())
     private var userProfiles: FetchedResults<CDUserProfile>
+    @FetchRequest(fetchRequest: FetchRequestBuilders.allMemories())
+    private var allMemories: FetchedResults<CDMemory>
     @FetchRequest(fetchRequest: FetchRequestBuilders.allGrandchildren())
     private var allGrandchildren: FetchedResults<CDGrandchild>
     @FetchRequest(fetchRequest: FetchRequestBuilders.allContributors())
@@ -3303,6 +3439,25 @@ struct CaptureView: View {
             return contributorName
         }
         return "Grandparent"
+    }
+
+    private func memoryBelongsToCurrentUser(_ memory: CDMemory) -> Bool {
+        if let contributorId = memory.contributor?.id?.uuidString, !activeContributorID.isEmpty {
+            return contributorId == activeContributorID
+        }
+        if let recordName = memory.contributor?.iCloudUserRecordName, !recordName.isEmpty,
+           !iCloudUserRecordName.isEmpty {
+            return recordName == iCloudUserRecordName
+        }
+        if let createdBy = memory.createdBy?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           let profileName = userProfiles.first?.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            return createdBy == profileName
+        }
+        return false
+    }
+
+    private var currentUserMemoryCount: Int {
+        allMemories.filter { memoryBelongsToCurrentUser($0) }.count
     }
 
     private func fetchiCloudUserRecordName() async -> String? {
@@ -3390,7 +3545,11 @@ struct CaptureView: View {
     @State private var showPaywall = false
     @State private var showMemoryReminder = false
     @StateObject private var storeManager = StoreKitManager.shared
-    
+
+    private var hasPremiumAccess: Bool {
+        storeManager.isPremium || isCoGrandparentDevice
+    }
+
     // Gift Scheduling
     @State private var showGiftScheduling = false
     @State private var giftReleaseOption: GiftReleaseOption = .vault
@@ -3403,7 +3562,7 @@ struct CaptureView: View {
     private enum CaptureField {
         case title
     }
-    
+
     init(grandchild: CDGrandchild?, memoryType: MemoryType, allowUnassigned: Bool = false, forceVaultOnly: Bool = false) {
         self.grandchild = grandchild
         self.memoryType = memoryType
@@ -4521,11 +4680,9 @@ struct CaptureView: View {
             performSaveMemory()
             return
         }
-        // TEMPORARY: Disabled for testing - remove before production
         // Check memory limit for free users
-        /*
-        if let profile = userProfiles.first, !storeManager.isPremium {
-            let currentCount = Int(profile.freeMemoryCount)
+        if let profile = userProfiles.first, !hasPremiumAccess {
+            let currentCount = allMemories.count
             
             if currentCount >= 10 {
                 // Hard limit reached - block and show paywall
@@ -4537,7 +4694,6 @@ struct CaptureView: View {
                 return
             }
         }
-        */
         
         // Handle based on privacy selection
         switch privacy {
@@ -4939,11 +5095,18 @@ struct CaptureView: View {
             memory.releaseDate = nil
             memory.releaseAge = 0
         }
+
+        if forceVaultOnly {
+            memory.privacy = MemoryPrivacy.vaultOnly.rawValue
+            memory.isReleased = false
+            memory.releaseDate = nil
+            memory.releaseAge = 0
+        }
         
         // Memory is already inserted via createMemory, no need to insert again
         
-        if let profile = userProfiles.first, profile.isPremium != true {
-            profile.freeMemoryCount = (profile.freeMemoryCount ?? 0) + 1
+        if let profile = userProfiles.first, !hasPremiumAccess {
+            profile.freeMemoryCount = Int32(allMemories.count + 1)
         }
         
         print("💾 Saving memory to Core Data...")
@@ -6435,11 +6598,17 @@ struct MemoryDetailView: View {
     let memory: CDMemory
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
+    @FetchRequest(fetchRequest: FetchRequestBuilders.userProfile())
+    private var userProfiles: FetchedResults<CDUserProfile>
+    @AppStorage("activeContributorID") private var activeContributorID: String = ""
+    @AppStorage("iCloudUserRecordName") private var iCloudUserRecordName: String = ""
     @State private var isEditing = false
     @State private var noteText: String
+    @State private var titleText: String
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var photoData: Data?
     @State private var showingDeleteConfirmation = false
+    @State private var showingDeleteNotAllowed = false
     
     // Memory-type specific fields
     @State private var milestoneTitle: String
@@ -6476,6 +6645,7 @@ struct MemoryDetailView: View {
     
     init(memory: CDMemory) {
         self.memory = memory
+        self._titleText = State(initialValue: memory.title ?? "")
         self._noteText = State(initialValue: memory.note ?? "")
         self._photoData = State(initialValue: memory.photoData)
         self._milestoneTitle = State(initialValue: memory.milestoneTitle ?? "")
@@ -6579,6 +6749,11 @@ struct MemoryDetailView: View {
             } message: {
                 Text("This memory will be permanently deleted from your account and your grandchild's account. This cannot be undone.")
             }
+            .alert("Can't Delete This Memory", isPresented: $showingDeleteNotAllowed) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("You can only delete memories you created.")
+            }
             .navigationTitle(isEditing ? "Edit Memory" : "Memory")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -6586,6 +6761,7 @@ struct MemoryDetailView: View {
                     Button {
                         if isEditing {
                             isEditing = false
+                            titleText = memory.title ?? ""
                             noteText = memory.note ?? ""
                             photoData = memory.photoData
                         } else {
@@ -6607,7 +6783,11 @@ struct MemoryDetailView: View {
                                 isEditing = true
                             }
                             Button(role: .destructive) {
-                                showingDeleteConfirmation = true
+                                if canDelete(memory) {
+                                    showingDeleteConfirmation = true
+                                } else {
+                                    showingDeleteNotAllowed = true
+                                }
                             } label: {
                                 Image(systemName: "trash")
                             }
@@ -6744,6 +6924,7 @@ struct MemoryDetailView: View {
     
     private func saveChangesAsync() async {
         // Update common fields
+        memory.title = titleText.isEmpty ? nil : titleText
         memory.note = noteText.isEmpty ? nil : noteText
         if let photoData {
             // Always store in Core Data for CloudKit sync
@@ -6808,6 +6989,10 @@ struct MemoryDetailView: View {
         Group {
             VStack(spacing: 16) {
                 editingPhotoSection
+                TextField("Title (optional)", text: $titleText)
+                    .textFieldStyle(.plain)
+                    .padding()
+                    .background(DesignSystem.Colors.backgroundTertiary, in: RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md))
                 memoryTypeSpecificFields
             }
         }
@@ -6816,6 +7001,7 @@ struct MemoryDetailView: View {
     @ViewBuilder
     private var viewingContent: some View {
         memoryTypeBadge
+        titleSection
         if memory.memoryType == MemoryType.audioPhoto.rawValue {
             mediaContentSection
             audioPlayerSection
@@ -6841,6 +7027,22 @@ struct MemoryDetailView: View {
                 .background(contributorGradient, in: Capsule())
             Spacer()
         }
+    }
+    
+    @ViewBuilder
+    private var titleSection: some View {
+        let trimmedTitle = memory.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Title")
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+            Text(trimmedTitle.isEmpty ? "No title" : trimmedTitle)
+                .font(DesignSystem.Typography.title3)
+                .foregroundStyle(trimmedTitle.isEmpty ? DesignSystem.Colors.textTertiary : DesignSystem.Colors.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding()
+        .background(DesignSystem.Colors.backgroundTertiary, in: RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md))
     }
     
     @ViewBuilder
@@ -7141,7 +7343,11 @@ struct MemoryDetailView: View {
     
     private var deleteButton: some View {
         Button(role: .destructive) {
-            showingDeleteConfirmation = true
+            if canDelete(memory) {
+                showingDeleteConfirmation = true
+            } else {
+                showingDeleteNotAllowed = true
+            }
         } label: {
             HStack {
                 Image(systemName: "trash")
@@ -7152,6 +7358,21 @@ struct MemoryDetailView: View {
             .padding()
             .background(DesignSystem.Colors.backgroundTertiary, in: RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md))
         }
+    }
+
+    private func canDelete(_ memory: CDMemory) -> Bool {
+        if let contributorId = memory.contributor?.id?.uuidString, !activeContributorID.isEmpty {
+            return contributorId == activeContributorID
+        }
+        if let recordName = memory.contributor?.iCloudUserRecordName, !recordName.isEmpty,
+           !iCloudUserRecordName.isEmpty {
+            return recordName == iCloudUserRecordName
+        }
+        if let createdBy = memory.createdBy?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           let profileName = userProfiles.first?.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            return createdBy == profileName
+        }
+        return false
     }
     
     private func handlePhotoEdit(_ editedImage: UIImage) {
@@ -7189,12 +7410,17 @@ struct PhotoImportView: View {
     @FetchRequest(fetchRequest: FetchRequestBuilders.allContributors())
     private var contributors: FetchedResults<CDContributor>
     @AppStorage("activeContributorID") private var activeContributorID: String = ""
+    @AppStorage("isCoGrandparentDevice") private var isCoGrandparentDevice: Bool = false
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var importedPhotos: [ImportedPhoto] = []
     @State private var isProcessing = false
     @State private var showPaywall = false
     @State private var showMemoryReminder = false
     @StateObject private var storeManager = StoreKitManager.shared
+
+    private var hasPremiumAccess: Bool {
+        storeManager.isPremium || isCoGrandparentDevice
+    }
     
     private var activeContributor: CDContributor? {
         contributors.first { $0.id?.uuidString == activeContributorID }
@@ -7286,7 +7512,7 @@ struct PhotoImportView: View {
                 PaywallView(source: .memoryLimit) {
                     // Paywall dismissed - they may have purchased
                     // Try saving again if they're now premium
-                    if storeManager.isPremium {
+                    if hasPremiumAccess {
                         performSaveImportedPhotos()
                     }
                 }
@@ -7411,7 +7637,7 @@ struct PhotoImportView: View {
     
     private func saveImportedPhotos() {
         // Check if adding these photos would exceed the free limit
-        if let profile = userProfiles.first, !storeManager.isPremium {
+        if let profile = userProfiles.first, !hasPremiumAccess {
             let currentCount = Int(profile.freeMemoryCount)
             let newCount = currentCount + importedPhotos.count
             
@@ -7468,7 +7694,7 @@ struct PhotoImportView: View {
             }
             
             // Increment free memory count if not premium
-            if let profile = userProfiles.first, !storeManager.isPremium {
+            if let profile = userProfiles.first, !hasPremiumAccess {
                 profile.freeMemoryCount = profile.freeMemoryCount + 1
             }
         }

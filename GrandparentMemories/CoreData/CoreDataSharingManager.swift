@@ -96,10 +96,22 @@ class CoreDataSharingManager: NSObject, ObservableObject {
         guard let grandchildName = grandchild.name else {
             throw CoreDataSharingError.noGrandchildName
         }
+        // Prefer the shared-store grandchild so the child sees shared-store memories
+        let sharedStore = coreDataStack.sharedPersistentStore
+        let targetGrandchild: CDGrandchild
+        if let grandchildId = grandchild.id {
+            let sharedRequest: NSFetchRequest<CDGrandchild> = CDGrandchild.fetchRequest()
+            sharedRequest.predicate = NSPredicate(format: "id == %@", grandchildId as CVarArg)
+            sharedRequest.fetchLimit = 1
+            sharedRequest.affectedStores = [sharedStore]
+            targetGrandchild = (try? coreDataStack.viewContext.fetch(sharedRequest).first) ?? grandchild
+        } else {
+            targetGrandchild = grandchild
+        }
         
         // Create or get existing share for this grandchild
         let shareTitle = "\(grandchildName)'s Memory Vault"
-        let (share, container) = try await coreDataStack.share(grandchild, title: shareTitle, publicPermission: .readOnly)
+        let (share, container) = try await coreDataStack.share(targetGrandchild, title: shareTitle, publicPermission: .readOnly)
         
         // Configure share as read-only
         share.publicPermission = .readOnly

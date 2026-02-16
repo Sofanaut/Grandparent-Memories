@@ -335,7 +335,7 @@ struct GrandchildGiftView: View {
                 await refreshMemories()
             }
         }
-        .sheet(isPresented: $showArchive) {
+        .fullScreenCover(isPresented: $showArchive) {
             if let grandchild = currentGrandchild {
                 GrandchildArchiveView(grandchild: grandchild)
             }

@@ -11,6 +11,7 @@
 		4E2ADBD62F36790100261002 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 4E2ADBD52F36790100261002 /* FirebaseStorage */; };
 		4E2ADBD82F36790B00261002 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4E2ADBD72F36790B00261002 /* FirebaseCore */; };
 		4EA9B6C52F37243E00E4A215 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 4EA9B6C42F37243E00E4A215 /* GoogleService-Info.plist */; };
+		4EBCED452F432763002A9839 /* GrandparentMemories.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 4EBCED442F432763002A9839 /* GrandparentMemories.storekit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -35,6 +36,7 @@
 		4E2D217A2F33D4F5005194F5 /* GrandparentMemoriesTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GrandparentMemoriesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E2D21842F33D4F5005194F5 /* GrandparentMemoriesUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GrandparentMemoriesUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4EA9B6C42F37243E00E4A215 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		4EBCED442F432763002A9839 /* GrandparentMemories.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = GrandparentMemories.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -96,6 +98,7 @@
 		4E2D21642F33D4F5005194F5 = {
 			isa = PBXGroup;
 			children = (
+				4EBCED442F432763002A9839 /* GrandparentMemories.storekit */,
 				4E2D216F2F33D4F5005194F5 /* GrandparentMemories */,
 				4E2ADBD22F3678F700261002 /* Frameworks */,
 				4E2D216E2F33D4F5005194F5 /* Products */,
@@ -233,6 +236,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4EBCED452F432763002A9839 /* GrandparentMemories.storekit in Resources */,
 				4EA9B6C52F37243E00E4A215 /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

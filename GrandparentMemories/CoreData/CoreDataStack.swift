@@ -15,6 +15,25 @@ class CoreDataStack {
 
     private init() {}
 
+    // MARK: - Persistent History Tracking
+
+    private let historyTokenKey = "CoreDataHistoryToken"
+
+    private var lastHistoryToken: NSPersistentHistoryToken? {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: historyTokenKey) else { return nil }
+            return try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSPersistentHistoryToken.self, from: data)
+        }
+        set {
+            if let token = newValue,
+               let data = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) {
+                UserDefaults.standard.set(data, forKey: historyTokenKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: historyTokenKey)
+            }
+        }
+    }
+
     // MARK: - Persistent Stores
     
     private var _privatePersistentStore: NSPersistentStore?
@@ -60,7 +79,10 @@ class CoreDataStack {
         }
         
         privateStoreDescription.url = privateStoreFolderURL.appendingPathComponent("private.sqlite")
-        
+
+        privateStoreDescription.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+        privateStoreDescription.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
+
         // Enable history tracking and remote notifications
         privateStoreDescription.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         privateStoreDescription.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
@@ -77,6 +99,9 @@ class CoreDataStack {
         }
         
         sharedStoreDescription.url = sharedStoreFolderURL.appendingPathComponent("shared.sqlite")
+
+        sharedStoreDescription.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+        sharedStoreDescription.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
         
         // Configure CloudKit shared database
         let sharedOptions = NSPersistentCloudKitContainerOptions(containerIdentifier: containerIdentifier)
@@ -132,7 +157,9 @@ class CoreDataStack {
             object: container.persistentStoreCoordinator,
             queue: .main
         ) { _ in
-            // Remote changes detected
+            // Remote changes detected - pull and merge history, then refresh
+            self.processPersistentHistory()
+            self.viewContext.refreshAllObjects()
         }
 
         return container
@@ -140,6 +167,35 @@ class CoreDataStack {
 
     var viewContext: NSManagedObjectContext {
         return persistentContainer.viewContext
+    }
+
+    // MARK: - Persistent History Merge
+
+    private func processPersistentHistory() {
+        let context = newBackgroundContext()
+        context.perform {
+            let request = NSPersistentHistoryChangeRequest.fetchHistory(after: self.lastHistoryToken)
+            do {
+                let result = try context.execute(request) as? NSPersistentHistoryResult
+                let transactions = result?.result as? [NSPersistentHistoryTransaction] ?? []
+                guard !transactions.isEmpty else { return }
+
+                self.mergeChanges(from: transactions)
+                self.lastHistoryToken = transactions.last?.token
+            } catch {
+                // Swallow errors to avoid crashing on transient CloudKit issues
+            }
+        }
+    }
+
+    private func mergeChanges(from transactions: [NSPersistentHistoryTransaction]) {
+        let viewContext = self.viewContext
+        viewContext.perform {
+            for transaction in transactions {
+                guard let userInfo = transaction.objectIDNotification().userInfo else { continue }
+                NSManagedObjectContext.mergeChanges(fromRemoteContextSave: userInfo, into: [viewContext])
+            }
+        }
     }
     
     /// Checks for any accepted shares that haven't been imported yet
@@ -237,16 +293,7 @@ class CoreDataStack {
         do {
             let existingShares = try await persistentContainer.fetchShares(matching: [object.objectID])
             if let existingShare = existingShares[object.objectID] {
-                if existingShare.publicPermission != publicPermission {
-                    // If permission doesn't match (e.g., co-grandparent needs readWrite),
-                    // purge the old share and create a fresh one.
-                    try await persistentContainer.purgeObjectsAndRecordsInZone(
-                        with: existingShare.recordID.zoneID,
-                        in: privatePersistentStore
-                    )
-                } else {
-                    return (existingShare, container)
-                }
+                return (existingShare, container)
             }
         } catch {
             // Continue - this might be first time sharing

@@ -34,6 +34,9 @@
         <attribute name="familyLink" optional="YES" attributeType="String"/>
         <attribute name="hasViewedWelcomeVideo" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="lastViewedDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="heartbeatsEnabled" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="heartbeatsStartDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="heartbeatsLastReleaseDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="shareCode" optional="YES" attributeType="String"/>
         <relationship name="memories" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDMemory" inverseName="grandchildren" inverseEntity="CDMemory"/>
         <relationship name="ancestors" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDAncestor" inverseName="grandchild" inverseEntity="CDAncestor"/>
